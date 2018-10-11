@@ -1,0 +1,15 @@
+[
+    {
+        "method": "GET",
+        "url": "http://localhost:8090/teste/:param1",
+        "scenes": [
+            {
+                "query": {"query1": "queryValue1"},
+                "params": {"param1":"paramValue1"},
+                "headers": {"X-request-id":"paramHeader1"},
+                "amount": 10,
+                "interval": 500
+            }
+        ]
+    }
+]
