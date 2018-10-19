@@ -27,6 +27,7 @@ function reportShotError(reports, err) {
 }
 
 function sleep(time) {
+    console.log(`Sleeping for ${time / 1000} seconds`)
     return new Promise((resolve, reject) => {
         try {
             setInterval(resolve, time);
@@ -38,6 +39,7 @@ function action(name, url, method, request, amount, interval) {
     const options = { ...request, method };
     const reports = [];
 
+    let actionPromise = null;
     if (interval) {
         // Chained promises
         let promise = shot(url, options, reports);
@@ -46,7 +48,7 @@ function action(name, url, method, request, amount, interval) {
             promise = promise.then(() => sleep(interval)).then(() => shot(url, options, reports));
         }
 
-        return promise.then(() => reports);
+        actionPromise = promise.then(() => reports);
     } else {
         // Parallel promises
         const promises = [];
@@ -55,8 +57,21 @@ function action(name, url, method, request, amount, interval) {
             promises.push(shot(url, options, reports));
         }
 
-        return Promise.all(promises).then(() => reports);
+        actionPromise = Promise.all(promises).then(() => reports);
     }
+
+    return actionPromise.then((shotReports) => reportAction(name, shotReports));
+}
+
+function reportAction(name, shotReports) {
+    return {
+        name,
+        shots: shotReports
+    };
+}
+
+function reportScript(actionReports) {
+    return actionReports;
 }
 
 function shot(url, options, reports = []) {
@@ -65,7 +80,46 @@ function shot(url, options, reports = []) {
     url = insertParams(url, params);
     url = insertQuery(url, query);
 
-    return fetch(url, options).then(reportShot.bind(null, reports)).catch(reportShotError.bind(null, reports));
+    console.log(`Shooting to HTTP server`, url, options);
+    return fetch(url, options).then(check).then(reportShot.bind(null, reports)).catch(reportShotError.bind(null, reports));
+}
+
+function check(response, expects) {
+    let hasMatched = false;
+
+    Promise.resolve(() => {
+        if (expects.headers) {
+            hasMatched = checkFields(response.headers, expects.headers);
+        }
+
+        if (expects.body) {
+            hasMatched = checkFields(response.body, expects.body);
+        }
+
+        if (expects.status) {
+            hasMatched = checkFields({ status: response.status }, { status: expects.status });
+        }
+    })
+}
+
+function checkFields(input, expectedFields) {
+    let currentExpected;
+    for (let property in expectedFields) {
+        if (!(property in input)) return false;
+        currentExpected = expectedFields[property];
+        // Each field
+        for (let method in currentExpected) {
+            // Each rule
+            try {
+                // Good to go
+                assert[method](input[property], currentExpected[method]);
+            } catch (e) {
+                return false;
+            }
+        }
+    }
+
+    return true;
 }
 
 function insertQuery(url, query) {
@@ -109,7 +163,9 @@ script.forEach((act) => {
     const acts = scenes.map((scene, i) => {
         const name = scene.name || i;
         const request = { headers: scene.headers, params: scene.params, query: scene.query, body: scene.body };
-        return action(name, url, method, request, scene.amount, scene.interval);
+
+        const interval = scene.period ? scene.period / scene.amount : scene.interval;
+        return action(name, url, method, request, scene.amount, interval);
     });
 
     Promise.all(acts)
